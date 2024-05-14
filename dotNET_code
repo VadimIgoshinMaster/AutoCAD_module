@@ -1,0 +1,77 @@
+using System;
+using Autodesk.AutoCAD.ApplicationServices;
+using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.EditorInput;
+using Autodesk.AutoCAD.Runtime;
+using Autodesk.AutoCAD.Geometry;
+
+[assembly: CommandClass(typeof(HatchAreaModule.MyCommands))]
+
+namespace HatchAreaModule
+{
+    public class MyCommands
+    {
+        [CommandMethod("CalcHatchAreas")]
+        public void CalculateHatchAreas()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Database db = doc.Database;
+            Editor ed = doc.Editor;
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                // Prompt the user to select hatches
+                PromptSelectionResult selRes = ed.GetSelection(new SelectionFilter(new[] { new TypedValue((int)DxfCode.Start, "HATCH") }));
+                
+                if (selRes.Status != PromptStatus.OK)
+                {
+                    ed.WriteMessage("\nNo hatches selected.");
+                    return;
+                }
+
+                SelectionSet selSet = selRes.Value;
+
+                foreach (SelectedObject selObj in selSet)
+                {
+                    if (selObj != null)
+                    {
+                        Hatch hatch = tr.GetObject(selObj.ObjectId, OpenMode.ForRead) as Hatch;
+                        if (hatch != null)
+                        {
+                            double area = hatch.Area;
+                            Point3d position = GetCentroid(hatch);
+                            AddTextToDrawing(tr, db, area, position);
+                        }
+                    }
+                }
+
+                tr.Commit();
+            }
+        }
+
+        private Point3d GetCentroid(Hatch hatch)
+        {
+            // Calculate the centroid of the hatch
+            // This is a simplified method and may need more complex handling for different hatch patterns
+            Extents3d extents = hatch.GeometricExtents;
+            return new Point3d((extents.MinPoint.X + extents.MaxPoint.X) / 2, (extents.MinPoint.Y + extents.MaxPoint.Y) / 2, 0);
+        }
+
+        private void AddTextToDrawing(Transaction tr, Database db, double area, Point3d position)
+        {
+            BlockTable bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+            BlockTableRecord btr = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
+
+            using (DBText text = new DBText())
+            {
+                text.Position = position;
+                text.Height = 2; // Set text height as required
+                text.TextString = $"Area: {area:F2}";
+                text.ColorIndex = 1; // Set color as required
+
+                btr.AppendEntity(text);
+                tr.AddNewlyCreatedDBObject(text, true);
+            }
+        }
+    }
+}
